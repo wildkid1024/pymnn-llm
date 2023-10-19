@@ -8,7 +8,7 @@ import onnx
 import onnxruntime as ort
 
 import numpy as np
-# import MNN.numpy as np # if use MNN Backend
+import MNN.numpy as _np 
 
 class LLM:
     def __init__(self, tokenizer=None, ) -> None:
@@ -59,9 +59,6 @@ class LLM:
                 self._word_encoder[word] = idx
             print("Done!")
 
-        print(self._word_decoder[5])
-        print(self._word_decoder[74874])
-
         load_progress_ = 0.0
         if self.is_single_:
             pass
@@ -72,7 +69,7 @@ class LLM:
 
             # load lm model
             lm_model_path = model_dir + "/lm.onnx"
-            embedding_model_path = model_dir + "/embedding2.onnx"
+            embedding_model_path = model_dir + "/embedding.onnx"
             load_progress_ += step
             print("[%3.0f%% ] load %s model ... "%(load_progress_, lm_model_path), end='')
             self._modules[self.layer_nums_] = ort.InferenceSession(lm_model_path, providers=['CPUExecutionProvider'])
@@ -85,7 +82,7 @@ class LLM:
             # load glm_block models
             for i in range(self.layer_nums_):
                 load_progress_ += step
-                model_path = model_dir + f"/glm_block_{i}.onnx"
+                model_path = model_dir + f"/block_{i}.onnx"
                 print("[%3.0f%% ] load %s model ... "%(load_progress_, model_path), end='')
                 if i < 7:
                     self._modules[i] = ort.InferenceSession(model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
@@ -100,33 +97,25 @@ class LLM:
         # embedding = _Input({1, static_cast<int>(seq_len), hidden_}, NCHW)
         size = self.hidden_ * 4
         file_path = self._model_dir + "/slim_word_embeddings.bin"
-        file_path = "/public/Code/Cpp/ChatGLM-MNN/resource/models/int4/slim_word_embeddings.bin"
         with open(file_path, "rb") as f:
             for i in range(seq_len):
                 f.seek(input_ids[i]*size)
                 buffer = f.read(size)
                 buffer = struct.unpack('f'*self.hidden_, buffer)
                 for j in range(self.hidden_):
-                    # b = buffer[j*4: (j*4)+4]
                     embedding[i][0][j] = float(buffer[j])
         return embedding
 
     def tokenizer_encode(self, input_str):
         ids = []
-        dict_path = self._tokenizer_dir + "/jieba.dict.utf8"
-        model_path = self._tokenizer_dir + "/hmm_model.utf8"
-        user_dict_path = self._tokenizer_dir + "/user.dict.utf8"
-        idf_path = self._tokenizer_dir + "/idf.utf8"
-        stopWord_path = self._tokenizer_dir + "/stop_words.utf8"
-        jieba.load_userdict(user_dict_path)
-        # jieba.set_dictionary(dict_path)
+        # user_dict_path = self._tokenizer_dir + "/user.dict.utf8"
+        # jieba.load_userdict(user_dict_path)
 
         words = jieba.cut(input_str, HMM=True)
         for word in words:
             id = self._word_encoder.get(word, -1)
             if id >= 0: ids.append(id)
         return ids
-    
 
     def decode(self, id):
         word = self._word_decoder[id]
@@ -151,13 +140,7 @@ class LLM:
             self._past_key_values[0] = outputs[1]
         else:
             # split block models
-            # hidden_states = self._modules[self.layer_nums_ + 1].run(input_feed={"input_ids": inputs_ids_}, output_names=None)[0]
-            hidden_states = self.gen_embedding(inputs_ids_)
-            # hidden_states = np.random.random([3, 1, 4096])
-            # print("hidden_states shape:", hidden_states.shape)
-            # print("attention_mask shape:", attention_mask.shape)
-            # print("position_ids shape:", position_ids.shape)
-            # print("_past_key_values shape:", self._past_key_values[0].shape)
+            hidden_states = self._modules[self.layer_nums_ + 1].run(input_feed={"input_ids": inputs_ids_}, output_names=None)[0]
 
             for i in range(self.layer_nums_):
                 input_feed = {
@@ -169,8 +152,8 @@ class LLM:
                 outputs = self._modules[i].run(input_feed=input_feed, output_names=None)
                 hidden_states = outputs[0]
                 self._past_key_values[i] = outputs[1]
-
-            outputs = self._modules[self.layer_nums_].run(input_feed={"hidden_states": hidden_states[-1]}, output_names=None)
+            
+            outputs = self._modules[self.layer_nums_].run(input_feed={"hidden_states": hidden_states}, output_names=None)
             id = outputs[0]
         self.all_seq_len_ += seq_len
         self.gen_seq_len_+= 1
@@ -255,11 +238,11 @@ class Chatglm(LLM):
     def _is_stop(self, token_id:int)->bool:
         return token_id == 130005
 
-def create_llm( mnn_path:str):
+def create_llm(mnn_path:str):
     single_file = mnn_path.endswith(".onnx")
     model = None
-    if "chatglm" in mnn_path.lower():
-        model = Chatglm()
+    # if "chatglm" in mnn_path.lower():
+    model = Chatglm()
     model.is_single_ = single_file
     return model
 
@@ -305,9 +288,8 @@ def infer_lm():
 if __name__ == "__main__":
     # infer_block()
     # infer_lm()
-    onnx_model = "/public/Code/Cpp/ChatGLM-MNN/resource/models/chat_glm_onnx/"
-    tokenizer_dir = "/public/Code/Cpp/mnn-llm/resource/tokenizer"
-    query = "你好"
+    onnx_model = "./onnx"
+    query = "飞机为什么能够飞行"
     model = create_llm(mnn_path=onnx_model)
-    model.load(onnx_model, tokenizer_dir)
+    model.load(onnx_model, onnx_model)
     model.response(query=query)

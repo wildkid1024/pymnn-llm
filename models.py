@@ -1,31 +1,22 @@
 from llm import BaseLLM
+from enum import Enum
+
+class ModelType(Enum):
+    Chatglm = 0 
+    Chatglm2 = 1
+    Qwen = 128
+    Baichuan2 = 256
+
 
 # chatglm-6b
 class Chatglm(BaseLLM):
     def __init__(self, backend=None) -> None:
         super().__init__(backend=backend)
-        self.model_name_ = "Chatglm_6b"
+        self.model_name_ = f"{ModelType.Chatglm.name}_6b" 
         self.layer_nums_ = 28
         self.key_value_shape_ = [2, 0, 1, 32, 128]
 
         self._context_len_ = 0
-
-    def hf_tokenizer(self, query):
-        from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained("/public/Models/chatglm-6b", trust_remote_code=True)
-        input_ids = tokenizer(query)
-        print("tokenizer decode:", input_ids)
-        ids = input_ids['input_ids']
-        return ids
-
-    def _tokenizer(self, query:str, use_hf=False):
-        if use_hf: return self.hf_tokenizer(query)
-        ids = self.tokenizer_encode(query)
-        ids.insert(0, 5)
-        self._context_len_ = len(ids)
-        ids.append(130001)
-        ids.append(130004)
-        return ids
 
     def _gen_attention_mask(self, seq_len:int):
         attention_mask = self.numpy_engine.zeros([1, 1, seq_len, seq_len], dtype=self.numpy_engine.int32, order='C')
@@ -54,21 +45,13 @@ class Chatglm(BaseLLM):
 class Chatglm2(BaseLLM):
     def __init__(self, backend='onnx') -> None:
         super().__init__(backend)
-        self.model_name_ = "Chatglm2_6b"
+        self.model_name_ = ModelType.Chatglm2.name
         self.layer_nums_ = 28
         self.key_value_shape_ = [2, 0, 1, 32, 128]
 
         self._context_len_ = 0
 
-    def hf_tokenizer(self, query):
-        from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained("/public/Models/chatglm2-6b", trust_remote_code=True)
-        input_ids = tokenizer(query)
-        ids = input_ids['input_ids']
-        return ids
-
     def _tokenizer(self, query:str, use_hf=False):
-        if use_hf: return self.hf_tokenizer(query)
         prompt = "\n问：\n" + query + "答：\n"
         ids = self.tokenizer_encode(prompt)
         ids.insert(0, 64792)
@@ -101,16 +84,11 @@ class Qwen(BaseLLM):
     def __init__(self, backend='onnx') -> None:
         super().__init__(backend)
 
-        self.model_name_ = "Qwen_7b"
+        self.model_name_ = ModelType.Qwen.name
         self.layer_nums_ = 32
         self.key_value_shape_ = [2, 0, 1, 32, 128]
 
         self._context_len_ = 0
-
-    def _tokenizer(self, query:str, use_hf=False):
-        prompt = "\n<|im_start|>user\n" + query + "<|im_end|>\n<|im_start|>assistant\n"
-        ids = self.tokenizer_encode(prompt)
-        return ids
 
     def _gen_attention_mask(self, seq_len:int):
         attention_mask = self.numpy_engine.empty([1, 1, seq_len, seq_len], dtype=self.numpy_engine.int32)
@@ -136,17 +114,11 @@ class Qwen(BaseLLM):
 class Baichuan2(BaseLLM):
     def __init__(self, backend='onnx') -> None:
         super().__init__(backend)
-        self.model_name_ = "Baichuan2_7b"
+        self.model_name_ = ModelType.Baichuan2.name
         self.layer_nums_ = 32
         self.key_value_shape_ = [2, 1, 32, 0, 128];
 
         self._context_len_ = 0
-
-    def _tokenizer(self, query:str, use_hf=False):
-        ids = self.tokenizer_encode(query)
-        ids.insert(0, 195)
-        ids.append(196)
-        return ids
 
     def _gen_attention_mask(self, seq_len:int):
         attention_mask = self.numpy_engine.zeros([1, 1, seq_len, seq_len], dtype=self.numpy_engine.float32)

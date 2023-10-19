@@ -2,6 +2,12 @@ import MNN as mnn
 from typing import List
 import os
 import json
+from enum import Enum
+
+class EngineType(Enum):
+    ORT = 1
+    MNN = 2
+
 
 class BaseEngine:
     def __init__(self, layer_nums=0, past_kv_shape=None, **kwargs) -> None:
@@ -21,13 +27,13 @@ class BaseEngine:
         return os.path.isfile(self.model_dir)
     
     def reset_kv(self, ):
-        pass
+        raise NotImplementedError
 
     def _load_model(self, ):
-        pass
+        raise NotImplementedError
 
     def forward(self, ):
-        pass
+        raise NotImplementedError
 
 class ORTEngine(BaseEngine):
     def __init__(self, **kwargs):
@@ -46,7 +52,7 @@ class ORTEngine(BaseEngine):
 
             # load lm model
             lm_model_path = model_dir + "/lm.onnx"
-            embedding_model_path = model_dir + "/embedding2.onnx"
+            embedding_model_path = model_dir + "/embedding.onnx"
             load_progress_ += step
             print("[%3.0f%% ] load %s model ... "%(load_progress_, lm_model_path), end='')
             self._modules[self.layer_nums_] = ort.InferenceSession(lm_model_path, providers=['CPUExecutionProvider'])
@@ -59,7 +65,7 @@ class ORTEngine(BaseEngine):
             # load glm_block models
             for i in range(self.layer_nums_):
                 load_progress_ += step
-                model_path = model_dir + f"/glm_block_{i}.onnx"
+                model_path = model_dir + f"/block_{i}.onnx"
                 print("[%3.0f%% ] load %s model ... "%(load_progress_, model_path), end='')
                 self._modules[i] = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
                 print("Done!", flush=True)
@@ -68,7 +74,6 @@ class ORTEngine(BaseEngine):
     def forward(self, input_ids, attention_mask, position_ids)->List[int]:
         import numpy as np
         inputs_ids_ = np.array(input_ids, dtype=np.int64)
-        print(input_ids)
         id = -1
 
         attention_mask = attention_mask > 0
@@ -102,9 +107,9 @@ class ORTEngine(BaseEngine):
                 self._past_key_values[i] = outputs[1]
                 # if i == 1: break
 
-            outputs = self._modules[self.layer_nums_].run(input_feed={"hidden_states": hidden_states[-1]}, output_names=None)
+            outputs = self._modules[self.layer_nums_].run(input_feed={"hidden_states": hidden_states}, output_names=None)
             id = outputs[0]
-        return id
+        return int(id)
     
     def reset_kv(self, ):
         import numpy as np
@@ -123,22 +128,27 @@ class MNNEngine(BaseEngine):
         # return super()._load_model()
         self._model_dir = model_dir
         config = {
-            "backend": "CPU",
             "precision": "low",
-            # "numThread": 4,
+            "backend": 3,
+            "numThread": 4,
             #   "saveTensors": "",
             #   "inputPaths":"",
             #   "outputPaths": "",
         }
-        self._runtime_manager = mnn.nn.create_runtime_manager(json.dumps({}))
+        self._runtime_manager = mnn.nn.create_runtime_manager((config,))
+        self._runtime_manager.set_cache(".cachefile")
+        # set_mode(type) //type 9 for "auto_backend"
+        self._runtime_manager.set_mode(9)
+        # set_hint(type, value) //type 0 for "tune_num" 
+        self._runtime_manager.set_hint(0, 20)
 
         load_progress_ = 0.0
         module_config = {
             "shape_mutable": True,
             "rearrange": True,
-            "backend": mnn.expr.Backend.CPU,
-            "precision_mode": mnn.expr.PrecisionMode.Low,
-            # "runtime_manager": self._runtime_manager
+            # "backend": mnn.expr.Backend.CPU,
+            # "precision_mode": mnn.expr.PrecisionMode.Low,
+            "runtime_manager": self._runtime_manager
         }
         if self._is_single:
             model_path = self.model_dir_
@@ -170,7 +180,7 @@ class MNNEngine(BaseEngine):
             # load glm_block models
             for i in range(self.layer_nums_):
                 load_progress_ += step
-                model_path = model_dir + f"/glm_block_{i}.mnn"
+                model_path = model_dir + f"/block_{i}.mnn"
                 print("[%3.0f%% ] load %s model ... "%(load_progress_, model_path), end='')
                 self._modules[i] = mnn.nn.load_module_from_file(
                     model_path,
@@ -181,20 +191,21 @@ class MNNEngine(BaseEngine):
     
     def forward(self, input_ids, attention_mask, position_ids):
         import MNN.numpy as np
+        inputs_ids_np = np.array(input_ids, dtype=np.int64)
         seq_len = len(input_ids)
-        inputs_ids_ = np.empty([seq_len, ], np.int64)
-        for i in range(seq_len): inputs_ids_[i] = int(input_ids[i]) 
+        # inputs_ids_ = np.empty([seq_len, ], np.int64)
+        # for i in range(seq_len): inputs_ids_[i] = int(input_ids[i]) 
         # attention_mask = self._gen_attention_mask(seq_len)
         # position_ids = self._gen_position_ids(seq_len)
         id = -1
         if self._is_single:
             # single model
-            outputs = self._modules[-1].onForward([inputs_ids_, attention_mask, position_ids, self._past_key_values[0]])
+            outputs = self._modules[-1].onForward([inputs_ids_np, attention_mask, position_ids, self._past_key_values[0]])
             id = outputs[0].read()[0]
             self._past_key_values[0] = outputs[1]
         else:
             # split block models
-            hidden_states = self._modules[self.layer_nums_ + 1].onForward([inputs_ids_])[0]
+            hidden_states = self._modules[self.layer_nums_ + 1].onForward([inputs_ids_np])[0]
             # hidden_states = self.gen_embedding(inputs_ids_)
             # hidden_states = np.random.random([4, 1, 4096])
             # attention_mask = np.random.randint(0, 1, [1, 1, 4, 4])
@@ -215,10 +226,9 @@ class MNNEngine(BaseEngine):
             # print("last layer:", hidden_states)
             logisits = self._modules[self.layer_nums_].onForward([hidden_states[-1]])
             id = logisits[0].read()
-            print(id)
         self.all_seq_len_ += seq_len
         self.gen_seq_len_+= 1
-        return id
+        return int(id)
     
     def reset_kv(self, ):
         import MNN.numpy as np
