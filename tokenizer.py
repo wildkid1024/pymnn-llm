@@ -24,7 +24,7 @@ class Tokenizer:
         for input_id in input_ids:
             word = self._word_decoder[input_id]
             if len(word) == 6 and word.startswith('<0x'):
-                word = word[1:-1].decode()
+                word = bytes.fromhex(word[1:-1]).decode()
             words += word
         return words
     
@@ -40,5 +40,5 @@ class Tokenizer:
 class ChatglmTokenizer(Tokenizer):
     def encode(self, input_str):
         # input_str = '\n' + input_str
-        input_ids = super().encode(input_str)
+        input_ids = [5] +  super().encode(input_str) + [130001, 130004]
         return input_ids

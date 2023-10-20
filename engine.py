@@ -70,14 +70,16 @@ class ORTEngine(BaseEngine):
                 self._modules[i] = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
                 print("Done!", flush=True)
                 # if i == 1: break
-
+    
     def forward(self, input_ids, attention_mask, position_ids)->List[int]:
         import numpy as np
         inputs_ids_ = np.array(input_ids, dtype=np.int64)
-        id = -1
-
-        attention_mask = attention_mask > 0
+        attention_mask = (attention_mask > 0).astype(np.bool_)
         position_ids = position_ids.astype(np.int64)
+        
+        # print("input ids shape:", inputs_ids_)
+        # print("attention mask shape:", attention_mask)
+        # print("position_ids shape:", position_ids)
         
         if self._is_single:
             # single model
@@ -87,13 +89,6 @@ class ORTEngine(BaseEngine):
         else:
             # split block models
             hidden_states = self._modules[self.layer_nums_ + 1].run(input_feed={"input_ids": inputs_ids_}, output_names=None)[0]
-           
-            # hidden_states = self.gen_embedding(inputs_ids_)
-            # hidden_states = np.random.random([3, 1, 4096])
-            # print("hidden_states shape:", hidden_states.shape)
-            # print("attention_mask shape:", attention_mask.shape)
-            # print("position_ids shape:", position_ids.shape)
-            # print("_past_key_values shape:", self._past_key_values[0].shape)
 
             for i in range(self.layer_nums_):
                 input_feed = {
@@ -105,7 +100,6 @@ class ORTEngine(BaseEngine):
                 outputs = self._modules[i].run(input_feed=input_feed, output_names=None)
                 hidden_states = outputs[0]
                 self._past_key_values[i] = outputs[1]
-                # if i == 1: break
 
             outputs = self._modules[self.layer_nums_].run(input_feed={"hidden_states": hidden_states}, output_names=None)
             id = outputs[0]
@@ -113,6 +107,7 @@ class ORTEngine(BaseEngine):
     
     def reset_kv(self, ):
         import numpy as np
+        self._past_key_values = []
         if self._is_single:
             self.key_value_shape_.insert(0, self.layer_nums_)
             self._past_key_values.append(np.empty(self.key_value_shape_, dtype=np.float32))
@@ -191,33 +186,25 @@ class MNNEngine(BaseEngine):
     
     def forward(self, input_ids, attention_mask, position_ids):
         import MNN.numpy as np
-        inputs_ids_np = np.array(input_ids, dtype=np.int64)
+        inputs_ids_mnn = np.array(input_ids, dtype=np.int32)
+        attention_mask_mnn = mnn.expr.placeholder(attention_mask.shape, dtype=np.int32)
+        attention_mask_mnn.write(attention_mask)
+        position_ids_mnn = mnn.expr.placeholder(position_ids.shape, dtype=np.int32) 
+        position_ids_mnn.write(position_ids)
+        
         seq_len = len(input_ids)
-        # inputs_ids_ = np.empty([seq_len, ], np.int64)
-        # for i in range(seq_len): inputs_ids_[i] = int(input_ids[i]) 
-        # attention_mask = self._gen_attention_mask(seq_len)
-        # position_ids = self._gen_position_ids(seq_len)
         id = -1
         if self._is_single:
             # single model
-            outputs = self._modules[-1].onForward([inputs_ids_np, attention_mask, position_ids, self._past_key_values[0]])
+            outputs = self._modules[-1].onForward([inputs_ids_mnn, attention_mask_mnn, position_ids_mnn, self._past_key_values[0]])
             id = outputs[0].read()[0]
             self._past_key_values[0] = outputs[1]
         else:
             # split block models
-            hidden_states = self._modules[self.layer_nums_ + 1].onForward([inputs_ids_np])[0]
-            # hidden_states = self.gen_embedding(inputs_ids_)
-            # hidden_states = np.random.random([4, 1, 4096])
-            # attention_mask = np.random.randint(0, 1, [1, 1, 4, 4])
-            # position_ids = np.random.randint(0, 4, [1, 2, 4])
-            # self._past_key_values = np.random.random([2, 0, 1, 32, 128])
-            # print("hidden_states shape:", hidden_states.shape)
-            # print("attention_mask shape:", attention_mask.shape)
-            # print("position_ids shape:", position_ids.shape)
-            # print("_past_key_values shape:", self._past_key_values[0].shape)
+            hidden_states = self._modules[self.layer_nums_ + 1].onForward([inputs_ids_mnn])[0]
 
             for i in range(self.layer_nums_):
-                outputs = self._modules[i].onForward([hidden_states, attention_mask, position_ids, self._past_key_values[i]])
+                outputs = self._modules[i].onForward([hidden_states, attention_mask_mnn, position_ids_mnn, self._past_key_values[i]])
                 # print(outputs)
                 hidden_states = outputs[0]
                 self._past_key_values[i] = outputs[1]

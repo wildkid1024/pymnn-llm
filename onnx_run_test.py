@@ -33,16 +33,16 @@ class LLM:
         self._word_decoder = []
     
     def _tokenizer(self, ):
-        pass
+        raise NotImplementedError
 
     def _gen_attention_mask(self, ):
-        pass
+        raise NotImplementedError
 
     def _gen_position_ids(self, ):
-        pass
+        raise NotImplementedError
 
     def _is_stop(self, ):
-        pass
+        raise NotImplementedError
 
     def load(self, model_dir, tokenizer_dir):
         self._model_dir = model_dir
@@ -288,8 +288,9 @@ def infer_lm():
 if __name__ == "__main__":
     # infer_block()
     # infer_lm()
-    onnx_model = "./onnx"
+    onnx_model = "./models/onnx"
     query = "飞机为什么能够飞行"
+    # query = "你好"
     model = create_llm(mnn_path=onnx_model)
     model.load(onnx_model, onnx_model)
     model.response(query=query)

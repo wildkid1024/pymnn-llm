@@ -1,3 +1,4 @@
+import numpy as np
 from llm import BaseLLM
 from enum import Enum
 
@@ -19,17 +20,17 @@ class Chatglm(BaseLLM):
         self._context_len_ = 0
 
     def _gen_attention_mask(self, seq_len:int):
-        attention_mask = self.numpy_engine.zeros([1, 1, seq_len, seq_len], dtype=self.numpy_engine.int32, order='C')
+        attention_mask = np.zeros([1, 1, seq_len, seq_len], dtype=np.int32)
         if seq_len > 1:
             for i in range(seq_len-1):
                 attention_mask[0][0][i][-1] = 1
         return attention_mask
 
     def _gen_position_ids(self, seq_len:int):
-        position_ids = self.numpy_engine.empty([1, 2, seq_len], dtype=self.numpy_engine.int32)
+        position_ids = np.zeros([1, 2, seq_len], dtype=np.int32)
         if seq_len == 1:
             position_ids[0][0][0] = 1
-            position_ids[0][1][0] = self.all_seq_len_ - self._context_len_
+            position_ids[0][1][0] = self.all_seq_len_ - (self._context_len_ - 2) 
         else:
             for i in range(seq_len):
                 position_ids[0][0][i] = i

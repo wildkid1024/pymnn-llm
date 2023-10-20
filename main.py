@@ -25,7 +25,8 @@ def chat():
     onnx_model = "models/onnx"
     mnn_model = "models/mnn/"
     query = "你好"
-    tokenizer = AutoTokenizer.from_pretrained("/home/pan/Public/Models/models-hf/chatglm-6b", trust_remote_code=True)
+    query = "飞机为什么能够飞行"
+    hf_tokenizer = AutoTokenizer.from_pretrained("/home/pan/Public/Models/models-hf/chatglm-6b", trust_remote_code=True)
     vocab_path = onnx_model + "/Chatglm_6b_vocab.txt"
 
     model, tokenizer = create_llm(model_path=mnn_model, vocab_path=vocab_path, backend=EngineType.MNN)

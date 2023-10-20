@@ -86,6 +86,7 @@ class BaseLLM:
         st = time.time()
         input_ids = tokenizer.encode(query)
         self._context_len_ = len(input_ids)
+        self.all_seq_len_ += len(input_ids)
 
         print(input_ids)
         token = self.forward(input_ids)
@@ -95,6 +96,7 @@ class BaseLLM:
         while self.gen_seq_len_ < max_seq_len:
             token = self.forward([token])
             self.gen_seq_len_ += 1
+            self.all_seq_len_ += 1
             if self._is_stop(token):
                 print(flush=True)
                 break
